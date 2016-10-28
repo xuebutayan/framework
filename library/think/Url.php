@@ -159,7 +159,8 @@ class Url
         // 检测域名
         $domain = self::parseDomain($url, $domain);
         // URL组装
-        $url = $domain . (self::$root ?: Request::instance()->root()) . '/' . ltrim($url, '/');
+        $url             = $domain . (self::$root ?: Request::instance()->root()) . '/' . ltrim($url, '/');
+        self::$bindCheck = false;
         return $url;
     }
 
@@ -178,10 +179,10 @@ class Url
             $url = substr($url, 1);
         } else {
             // 解析到 模块/控制器/操作
-            $module = $request->module();
+            $module  = $request->module();
+            $domains = Route::rules('domain');
             if (true === $domain && 2 == substr_count($url, '/')) {
                 $current = $request->host();
-                $domains = Route::rules('domain');
                 $match   = [];
                 $pos     = [];
                 foreach ($domains as $key => $item) {
