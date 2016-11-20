@@ -759,9 +759,9 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
             }
             foreach ($dataSet as $key => $data) {
                 if (!empty($auto) && isset($data[$pk])) {
-                    $result[$key] = self::update($data);
+                    $result[$key] = self::update($data, [], $this->field);
                 } else {
-                    $result[$key] = self::create($data);
+                    $result[$key] = self::create($data, $this->field);
                 }
             }
             $db->commit();
@@ -979,12 +979,16 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
     /**
      * 写入数据
      * @access public
-     * @param array     $data 数据数组
+     * @param array         $data 数据数组
+     * @param array|true    $field 允许字段
      * @return $this
      */
-    public static function create($data = [])
+    public static function create($data = [], $field = null)
     {
         $model = new static();
+        if (!empty($field)) {
+            $model->allowField($field);
+        }
         $model->isUpdate(false)->save($data, []);
         return $model;
     }
@@ -992,13 +996,17 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
     /**
      * 更新数据
      * @access public
-     * @param array     $data 数据数组
-     * @param array     $where 更新条件
+     * @param array         $data 数据数组
+     * @param array         $where 更新条件
+     * @param array|true    $field 允许字段
      * @return $this
      */
-    public static function update($data = [], $where = [])
+    public static function update($data = [], $where = [], $field = null)
     {
-        $model  = new static();
+        $model = new static();
+        if (!empty($field)) {
+            $model->allowField($field);
+        }
         $result = $model->isUpdate(true)->save($data, $where);
         return $model;
     }
@@ -1462,6 +1470,49 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
     public function __wakeup()
     {
         $this->initialize();
+    }
+
+    /**
+     * 模型事件快捷方法
+     */
+    protected static function beforeInsert($callback, $override = false)
+    {
+        self::event('before_insert', $callback, $override);
+    }
+
+    protected static function afterInsert($callback, $override = false)
+    {
+        self::event('after_insert', $callback, $override);
+    }
+
+    protected static function beforeUpdate($callback, $override = false)
+    {
+        self::event('before_update', $callback, $override);
+    }
+
+    protected static function afterUpdate($callback, $override = false)
+    {
+        self::event('after_update', $callback, $override);
+    }
+
+    protected static function beforeWrite($callback, $override = false)
+    {
+        self::event('before_write', $callback, $override);
+    }
+
+    protected static function afterWrite($callback, $override = false)
+    {
+        self::event('after_write', $callback, $override);
+    }
+
+    protected static function beforeDelete($callback, $override = false)
+    {
+        self::event('before_delete', $callback, $override);
+    }
+
+    protected static function afterDelete($callback, $override = false)
+    {
+        self::event('after_delete', $callback, $override);
     }
 
 }
