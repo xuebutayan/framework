@@ -2,7 +2,7 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2016 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2017 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
@@ -11,8 +11,7 @@
 
 namespace think;
 
-use think\App;
-use think\Collection;
+use think\db\Connection;
 use think\db\Query;
 use think\paginator\Collection as PaginatorCollection;
 
@@ -62,7 +61,7 @@ class Db
      * @access public
      * @param mixed         $config 连接配置
      * @param bool|string   $name 连接标识 true 强制重新连接
-     * @return \think\db\Connection
+     * @return Connection
      * @throws Exception
      */
     public static function connect($config = [], $name = false)
