@@ -17,15 +17,16 @@ use think\Model;
 class BelongsTo extends OneToOne
 {
     /**
-     * 架构函数
+     * 构造函数
      * @access public
      * @param Model  $parent 上级模型对象
      * @param string $model 模型名
      * @param string $foreignKey 关联外键
      * @param string $localKey 关联主键
      * @param string $joinType JOIN类型
+     * @param string $relation  关联名
      */
-    public function __construct(Model $parent, $model, $foreignKey, $localKey, $joinType = 'INNER')
+    public function __construct(Model $parent, $model, $foreignKey, $localKey, $joinType = 'INNER', $relation = null)
     {
         $this->parent     = $parent;
         $this->model      = $model;
@@ -33,6 +34,7 @@ class BelongsTo extends OneToOne
         $this->localKey   = $localKey;
         $this->joinType   = $joinType;
         $this->query      = (new $model)->db();
+        $this->relation   = $relation;
     }
 
     /**
@@ -49,6 +51,45 @@ class BelongsTo extends OneToOne
             call_user_func_array($closure, [ & $this->query]);
         }
         return $this->query->where($this->localKey, $this->parent->$foreignKey)->relation($subRelation)->find();
+    }
+
+    /**
+     * 根据关联条件查询当前模型
+     * @access public
+     * @param string  $operator 比较操作符
+     * @param integer $count    个数
+     * @param string  $id       关联表的统计字段
+     * @param string  $joinType JOIN类型
+     * @return Query
+     */
+    public function has($operator = '>=', $count = 1, $id = '*')
+    {
+        return $this->parent;
+    }
+
+    /**
+     * 根据关联条件查询当前模型
+     * @access public
+     * @param mixed $where 查询条件（数组或者闭包）
+     * @return Query
+     */
+    public function hasWhere($where = [])
+    {
+        $table    = $this->query->getTable();
+        $model    = basename(str_replace('\\', '/', get_class($this->parent)));
+        $relation = basename(str_replace('\\', '/', $this->model));
+        if (is_array($where)) {
+            foreach ($where as $key => $val) {
+                if (false === strpos($key, '.')) {
+                    $where[$relation . '.' . $key] = $val;
+                    unset($where[$key]);
+                }
+            }
+        }
+        return $this->parent->db()->alias($model)
+            ->field($model . '.*')
+            ->join($table . ' ' . $relation, $model . '.' . $this->foreignKey . '=' . $relation . '.' . $this->localKey, $this->joinType)
+            ->where($where);
     }
 
     /**
@@ -129,4 +170,35 @@ class BelongsTo extends OneToOne
         $result->setAttr(Loader::parseName($relation), $relationModel);
     }
 
+    /**
+     * 添加关联数据
+     * @access public
+     * @param Model $model       关联模型对象
+     * @return Model
+     */
+    public function associate($model)
+    {
+        $foreignKey = $this->foreignKey;
+        $pk         = $model->getPk();
+
+        $this->parent->setAttr($foreignKey, $model->$pk);
+        $this->parent->save();
+
+        return $this->parent->data($this->relation, $model);
+    }
+
+    /**
+     * 注销关联数据
+     * @access public
+     * @return Model
+     */
+    public function dissociate()
+    {
+        $foreignKey = $this->foreignKey;
+
+        $this->parent->setAttr($foreignKey, null);
+        $this->parent->save();
+
+        return $this->parent->data($this->relation, null);
+    }
 }

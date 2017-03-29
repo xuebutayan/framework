@@ -22,6 +22,7 @@ use think\model\relation\HasMany;
 use think\model\relation\HasManyThrough;
 use think\model\relation\HasOne;
 use think\model\relation\MorphMany;
+use think\model\relation\MorphOne;
 use think\model\relation\MorphTo;
 
 /**
@@ -109,7 +110,7 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
     protected static $initialized = [];
 
     /**
-     * 架构函数
+     * 构造方法
      * @access public
      * @param array|object $data 数据
      */
@@ -282,7 +283,7 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
             // 检测修改器
             $method = 'set' . Loader::parseName($name, 1) . 'Attr';
             if (method_exists($this, $method)) {
-                $value = $this->$method($value, array_merge($data, $this->data));
+                $value = $this->$method($value, $data);
             } elseif (isset($this->type[$name])) {
                 // 类型转换
                 $value = $this->writeTransform($value, $this->type[$name]);
@@ -290,9 +291,11 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
         }
 
         // 标记字段更改
-        if (isset($this->data[$name]) && is_scalar($this->data[$name]) && is_scalar($value) && 0 !== strcmp($this->data[$name], $value)) {
+        if (!isset($this->data[$name])) {
             $this->change[] = $name;
-        } elseif (!isset($this->data[$name]) || $value != $this->data[$name]) {
+        } elseif (is_scalar($value) && is_scalar($this->data[$name]) && 0 !== strcmp($this->data[$name], $value)) {
+            $this->change[] = $name;
+        } elseif (!is_object($value) && $value != $this->data[$name]) {
             $this->change[] = $name;
         }
         // 设置数据对象属性
@@ -365,6 +368,10 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
      */
     protected function writeTransform($value, $type)
     {
+        if (is_null($value)) {
+            return;
+        }
+
         if (is_array($type)) {
             list($type, $param) = $type;
         } elseif (strpos($type, ':')) {
@@ -378,7 +385,7 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
                 if (empty($param)) {
                     $value = (float) $value;
                 } else {
-                    $value = (float) number_format($value, $param);
+                    $value = (float) number_format($value, $param, '.', '');
                 }
                 break;
             case 'boolean':
@@ -473,6 +480,10 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
      */
     protected function readTransform($value, $type)
     {
+        if (is_null($value)) {
+            return;
+        }
+
         if (is_array($type)) {
             list($type, $param) = $type;
         } elseif (strpos($type, ':')) {
@@ -486,7 +497,7 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
                 if (empty($param)) {
                     $value = (float) $value;
                 } else {
-                    $value = (float) number_format($value, $param);
+                    $value = (float) number_format($value, $param, '.', '');
                 }
                 break;
             case 'boolean':
@@ -508,7 +519,7 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
                 $value = json_decode($value, true);
                 break;
             case 'array':
-                $value = is_null($value) ? [] : json_decode($value, true);
+                $value = empty($value) ? [] : json_decode($value, true);
                 break;
             case 'object':
                 $value = empty($value) ? new \stdClass() : json_decode($value);
@@ -837,11 +848,6 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
         // 数据自动完成
         $this->autoCompleteData($this->auto);
 
-        // 自动写入更新时间
-        if ($this->autoWriteTimestamp && $this->updateTime && (empty($this->change) || !in_array($this->updateTime, $this->change))) {
-            $this->setAttr($this->updateTime, null);
-        }
-
         // 事件回调
         if (false === $this->trigger('before_write', $this)) {
             return false;
@@ -871,6 +877,14 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
                         unset($data[$field]);
                     }
                 }
+            }
+
+            if (empty($data) || (count($data) == 1 && is_string($pk) && isset($data[$pk]))) {
+                // 没有更新
+                return 0;
+            } elseif ($this->autoWriteTimestamp && $this->updateTime && !isset($data[$this->updateTime])) {
+                // 自动写入更新时间
+                $data[$this->updateTime] = $this->autoWriteTimestamp($this->updateTime);
             }
 
             if (empty($where) && !empty($this->updateWhere)) {
@@ -912,17 +926,20 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
                 }
             }
 
-            // 清空change
-            $this->change = [];
             // 更新回调
             $this->trigger('after_update', $this);
+
         } else {
             // 自动写入
             $this->autoCompleteData($this->insert);
-
-            // 自动写入创建时间
-            if ($this->autoWriteTimestamp && $this->createTime && (empty($this->change) || !in_array($this->createTime, $this->change))) {
-                $this->setAttr($this->createTime, null);
+            // 自动写入创建时间和更新时间
+            if ($this->autoWriteTimestamp) {
+                if ($this->createTime && !isset($this->data[$this->createTime])) {
+                    $this->data[$this->createTime] = $this->autoWriteTimestamp($this->createTime);
+                }
+                if ($this->updateTime && !isset($this->data[$this->updateTime])) {
+                    $this->data[$this->updateTime] = $this->autoWriteTimestamp($this->updateTime);
+                }
             }
 
             if (false === $this->trigger('before_insert', $this)) {
@@ -949,13 +966,15 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
 
             // 标记为更新
             $this->isUpdate = true;
-            // 清空change
-            $this->change = [];
+
             // 新增回调
             $this->trigger('after_insert', $this);
         }
         // 写入回调
         $this->trigger('after_write', $this);
+
+        // 清空change
+        $this->change = [];
 
         return $result;
     }
@@ -1081,7 +1100,7 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
 
         // 删除条件
         $pk = $this->getPk();
-        if (isset($this->data[$pk])) {
+        if (is_string($pk) && isset($this->data[$pk])) {
             $where = [$pk => $this->data[$pk]];
         } elseif (!empty($this->updateWhere)) {
             $where = $this->updateWhere;
@@ -1285,11 +1304,15 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
      * @param mixed        $data  主键值或者查询条件（闭包）
      * @param array|string $with  关联预查询
      * @param bool         $cache 是否缓存
-     * @return static
+     * @return static|null
      * @throws exception\DbException
      */
-    public static function get($data = null, $with = [], $cache = false)
+    public static function get($data, $with = [], $cache = false)
     {
+        if (is_null($data)) {
+            return;
+        }
+
         if (true === $with || is_int($with)) {
             $cache = $with;
             $with  = [];
@@ -1426,16 +1449,11 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
      */
     public static function has($relation, $operator = '>=', $count = 1, $id = '*')
     {
-        $model    = new static();
-        $relation = $model->$relation();
-        if ($relation instanceof HasMany) {
-            if (is_array($operator) || $operator instanceof \Closure) {
-                return $relation->hasWhere($operator);
-            }
-            return $relation->has($operator, $count, $id);
-        } else {
-            return $relation;
+        $relation = (new static())->$relation();
+        if (is_array($operator) || $operator instanceof \Closure) {
+            return $relation->hasWhere($operator);
         }
+        return $relation->has($operator, $count, $id);
     }
 
     /**
@@ -1447,13 +1465,7 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
      */
     public static function hasWhere($relation, $where = [])
     {
-        $model    = new static();
-        $relation = $model->$relation();
-        if ($relation instanceof HasMany) {
-            return $relation->hasWhere($where);
-        } else {
-            return $relation;
-        }
+        return (new static())->$relation()->hasWhere($where);
     }
 
     /**
@@ -1640,7 +1652,9 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
         $model      = $this->parseModel($model);
         $foreignKey = $foreignKey ?: $this->getForeignKey($model);
         $localKey   = $localKey ?: (new $model)->getPk();
-        return new BelongsTo($this, $model, $foreignKey, $localKey, $joinType);
+        $trace      = debug_backtrace(false, 2);
+        $relation   = Loader::parseName($trace[1]['function']);
+        return new BelongsTo($this, $model, $foreignKey, $localKey, $joinType, $relation);
     }
 
     /**
@@ -1728,6 +1742,32 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
     }
 
     /**
+     * MORPH  One 关联定义
+     * @access public
+     * @param string       $model 模型名
+     * @param string|array $morph 多态字段信息
+     * @param string       $type  多态类型
+     * @return MorphOne
+     */
+    public function morphOne($model, $morph = null, $type = '')
+    {
+        // 记录当前关联信息
+        $model = $this->parseModel($model);
+        if (is_null($morph)) {
+            $trace = debug_backtrace(false, 2);
+            $morph = Loader::parseName($trace[1]['function']);
+        }
+        $type = $type ?: Loader::parseName($this->name);
+        if (is_array($morph)) {
+            list($morphType, $foreignKey) = $morph;
+        } else {
+            $morphType  = $morph . '_type';
+            $foreignKey = $morph . '_id';
+        }
+        return new MorphOne($this, $model, $foreignKey, $morphType, $type);
+    }
+
+    /**
      * MORPH TO 关联定义
      * @access public
      * @param string|array $morph 多态字段信息
@@ -1736,9 +1776,11 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
      */
     public function morphTo($morph = null, $alias = [])
     {
+        $trace    = debug_backtrace(false, 2);
+        $relation = Loader::parseName($trace[1]['function']);
+
         if (is_null($morph)) {
-            $trace = debug_backtrace(false, 2);
-            $morph = Loader::parseName($trace[1]['function']);
+            $morph = $relation;
         }
         // 记录当前关联信息
         if (is_array($morph)) {
@@ -1747,7 +1789,7 @@ abstract class Model implements \JsonSerializable, \ArrayAccess
             $morphType  = $morph . '_type';
             $foreignKey = $morph . '_id';
         }
-        return new MorphTo($this, $morphType, $foreignKey, $alias);
+        return new MorphTo($this, $morphType, $foreignKey, $alias, $relation);
     }
 
     public function __call($method, $args)
